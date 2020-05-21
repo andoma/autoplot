@@ -29,9 +29,11 @@ struct Chart {
     : min(0)
     , max(1)
     , kind(0)
+    , input(0)
     , gauge(0)
     , counter(0)
     , wrptr(0)
+    , hptr(0)
     , renormalize(0)
   {
     memset(history, 0, sizeof(history));
@@ -43,10 +45,13 @@ struct Chart {
   float max;
 
   int kind;
+  float input;
+
   float gauge;
   uint64_t counter;
 
   int wrptr;
+  int hptr;
   int renormalize;
   float history[HISTORY_SIZE];
   int64_t derive_history[DERIVE_HISTORY_SIZE];
@@ -55,7 +60,6 @@ struct Chart {
 static pthread_mutex_t chart_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static std::map<std::string, Chart> charts;
-
 
 
 static void
@@ -100,7 +104,7 @@ parse_packet(const uint8_t *buf, int len)
     case 1: // Gauge
       if(len < sizeof(float))
         return;
-      memcpy(&c.gauge, buf, sizeof(float));
+      memcpy(&c.input, buf, sizeof(float));
       buf += sizeof(float);
       len -= sizeof(float);
       break;
@@ -175,6 +179,8 @@ getvals(void *data, int index)
 int
 main(int argc, char **argv)
 {
+  bool hold = false;
+
   glfwSetErrorCallback(glfw_error_callback);
   if(!glfwInit()) {
     fprintf(stderr, "Unable to init GLFW\n");
@@ -224,43 +230,60 @@ main(int argc, char **argv)
                     ImGuiWindowFlags_NoCollapse |
                     ImGuiWindowFlags_NoBackground)) {
 
+      pthread_mutex_lock(&chart_mutex);
+
+      if(ImGui::Button("Clear")) {
+        charts.clear();
+      }
+      ImGui::SameLine();
+      ImGui::Checkbox("Hold", &hold);
+
+
       for(auto &it : charts) {
         int64_t delta;
         auto &c = it.second;
-        c.wrptr++;
+
+        if(!hold)
+          c.wrptr++;
+
+        c.hptr++;
 
         switch(c.kind) {
         case 1:
+          if(!hold)
+            c.gauge = c.input;
           break;
 
         case 2:
 
-          delta = c.counter - c.derive_history[c.wrptr & DERIVE_HISTORY_MASK];
-          c.derive_history[c.wrptr & DERIVE_HISTORY_MASK] = c.counter;
-          c.gauge = delta < 0 ? 0 : delta * (60.0f / DERIVE_HISTORY_SIZE);
+          delta = c.counter - c.derive_history[c.hptr & DERIVE_HISTORY_MASK];
+          c.derive_history[c.hptr & DERIVE_HISTORY_MASK] = c.counter;
+          if(!hold)
+            c.gauge = delta < 0 ? 0 : delta * (60.0f / DERIVE_HISTORY_SIZE);
           break;
         }
 
-        c.renormalize++;
-        if(c.renormalize == 300) {
-          c.renormalize = 0;
-          float max = 0;
-          float min = 0;
-          for(int i = 0; i < HISTORY_SIZE; i++) {
-            max = std::max(max, c.history[i]);
-            min = std::min(min, c.history[i]);
+        if(!hold) {
+          c.renormalize++;
+          if(c.renormalize == 300) {
+            c.renormalize = 0;
+            float max = 0;
+            float min = 0;
+            for(int i = 0; i < HISTORY_SIZE; i++) {
+              max = std::max(max, c.history[i]);
+              min = std::min(min, c.history[i]);
+            }
+            if(max < c.max / 2)
+              c.max = max;
+
+            if(min > c.max / 2)
+              c.min = min;
           }
-          if(max < c.max / 2)
-            c.max = max;
 
-          if(min > c.max / 2)
-            c.min = min;
+          c.history[c.wrptr & HISTORY_MASK] = c.gauge;
+          c.max = std::max(c.max, c.gauge);
+          c.min = std::min(c.min, c.gauge);
         }
-
-        c.history[c.wrptr & HISTORY_MASK] = c.gauge;
-        c.max = std::max(c.max, c.gauge);
-        c.min = std::min(c.min, c.gauge);
-
         char curval[64];
         snprintf(curval, sizeof(curval), "%f", c.gauge);
 
@@ -271,6 +294,8 @@ main(int argc, char **argv)
         ImGui::PlotLines(curval, getvals, (void *)&c, HISTORY_SIZE,
                          0, title, c.min, c.max, ImVec2(0, 100));
       }
+
+      pthread_mutex_unlock(&chart_mutex);
     }
     ImGui::End();
 
