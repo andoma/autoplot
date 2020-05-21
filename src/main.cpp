@@ -244,15 +244,22 @@ main(int argc, char **argv)
         c.renormalize++;
         if(c.renormalize == 300) {
           c.renormalize = 0;
-          float m = 0;
+          float max = 0;
+          float min = 0;
           for(int i = 0; i < HISTORY_SIZE; i++) {
-            m = std::max(m, c.history[i]);
+            max = std::max(max, c.history[i]);
+            min = std::min(min, c.history[i]);
           }
-          c.max = m;
+          if(max < c.max / 2)
+            c.max = max;
+
+          if(min > c.max / 2)
+            c.min = min;
         }
 
         c.history[c.wrptr & HISTORY_MASK] = c.gauge;
         c.max = std::max(c.max, c.gauge);
+        c.min = std::min(c.min, c.gauge);
 
         char curval[64];
         snprintf(curval, sizeof(curval), "%f", c.gauge);
