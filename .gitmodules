@@ -4,3 +4,6 @@
 [submodule "mkglue"]
 	path = mkglue
 	url = https://github.com/andoma/mkglue
+[submodule "ext/implot"]
+	path = ext/implot
+	url = https://github.com/epezent/implot

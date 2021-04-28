@@ -10,11 +10,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl2.h"
-#include <stdio.h>
 
-#ifdef __APPLE__
-#define GL_SILENCE_DEPRECATION
-#endif
 #include <GLFW/glfw3.h>
 
 #define HISTORY_SIZE 256
